@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+pandas
+scikit-learn
+numpy
+faker
+jinja2
+python-multipart
