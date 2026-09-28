@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Group Similarity Search</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<style>
+  :root{--primary:#2563eb;--success:#16a34a;--danger:#dc2626;--bg:#f8fafc;--card:#fff;--border:#e2e8f0;--text:#1e293b;--muted:#64748b}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+  header{background:var(--primary);color:#fff;padding:1rem 2rem;display:flex;align-items:center;gap:1rem}
+  header h1{font-size:1.4rem;font-weight:700}
+  .pill{font-size:.75rem;padding:.2rem .7rem;border-radius:9999px;background:rgba(255,255,255,.2)}
+  .pill.ok{background:#16a34a}
+  main{max-width:1100px;margin:2rem auto;padding:0 1rem}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:.75rem;padding:1.5rem;margin-bottom:1.5rem}
+  h2{font-size:1.1rem;font-weight:600;margin-bottom:1rem;color:var(--primary)}
+  .upload-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1rem}
+  .drop-zone{border:2px dashed var(--border);border-radius:.5rem;padding:1.2rem;text-align:center;cursor:pointer;transition:all .2s;position:relative}
+  .drop-zone:hover,.drop-zone.over{border-color:var(--primary);background:#eff6ff}
+  .drop-zone.ready{border-color:var(--success);background:#f0fdf4}
+  .drop-zone .label{font-weight:600;font-size:.9rem}
+  .drop-zone .hint{font-size:.75rem;color:var(--muted);margin-top:.25rem}
+  .drop-zone .fname{font-size:.78rem;color:var(--success);margin-top:.4rem;word-break:break-all}
+  .drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer}
+  .drop-zone .badge{font-size:.65rem;background:var(--muted);color:#fff;padding:.1rem .4rem;border-radius:4px;margin-top:.3rem;display:inline-block}
+  .drop-zone .badge.required{background:var(--danger)}
+  btn-row{display:block;text-align:center;margin:.5rem 0}
+  button{cursor:pointer;border:none;border-radius:.5rem;font-size:.9rem;padding:.6rem 1.6rem;font-weight:600;transition:all .2s}
+  .btn-primary{background:var(--primary);color:#fff}
+  .btn-primary:hover:not(:disabled){background:#1d4ed8}
+  .btn-primary:disabled{opacity:.4;cursor:not-allowed}
+  .btn-secondary{background:var(--border);color:var(--text)}
+  .person-list{display:flex;flex-wrap:wrap;gap:.4rem;max-height:220px;overflow-y:auto;padding:.25rem}
+  .person-chip{display:inline-flex;align-items:center;gap:.3rem;padding:.3rem .7rem;border-radius:9999px;border:1.5px solid var(--border);font-size:.8rem;cursor:pointer;user-select:none;transition:all .15s}
+  .person-chip.selected{background:var(--primary);color:#fff;border-color:var(--primary)}
+  .person-chip:hover:not(.selected){border-color:var(--primary);color:var(--primary)}
+  #search-input{width:100%;padding:.5rem .75rem;border:1px solid var(--border);border-radius:.5rem;font-size:.9rem;margin-bottom:.75rem}
+  .selected-bar{background:#eff6ff;border-radius:.5rem;padding:.5rem .75rem;font-size:.82rem;margin-bottom:.75rem;min-height:2rem}
+  #results{margin-top:1rem}
+  .result-card{border:1px solid var(--border);border-radius:.5rem;padding:1rem;margin-bottom:.75rem}
+  .result-header{display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem}
+  .rank{font-size:1.3rem;font-weight:700;color:var(--primary);min-width:2rem}
+  .sim-bar-wrap{flex:1;background:var(--border);border-radius:4px;height:10px}
+  .sim-bar{height:10px;border-radius:4px;background:var(--primary)}
+  .sim-pct{font-weight:600;min-width:3.5rem;text-align:left}
+  .members{font-size:.8rem;color:var(--muted)}
+  .radar-wrap{max-width:480px;margin:1.5rem auto 0}
+  .loader{text-align:center;padding:2rem;color:var(--muted)}
+  .error-msg{background:#fef2f2;border:1px solid #fca5a5;color:var(--danger);padding:.75rem 1rem;border-radius:.5rem;margin-top:.5rem}
+  .step{display:none}
+  .step.active{display:block}
+</style>
+</head>
+<body>
+<header>
+  <h1>&#x1F50D; Group Similarity Search</h1>
+  <span class="pill" id="status-pill">No data loaded</span>
+</header>
+<main>
+
+<!-- Step 1: Upload -->
+<div class="step active" id="step-upload">
+  <div class="card">
+    <h2>Step 1 — Upload Excel Files</h2>
+    <div class="upload-grid">
+      <div class="drop-zone" id="dz-persons" ondragover="dzOver(event,'persons')" ondragleave="dzLeave('persons')" ondrop="dzDrop(event,'persons')">
+        <div class="label">persons.xlsx</div>
+        <div class="badge required">required</div>
+        <div class="hint">id, name, age, region</div>
+        <div class="fname" id="fn-persons"></div>
+        <input type="file" accept=".xlsx,.xls" onchange="fileChosen('persons',this)">
+      </div>
+      <div class="drop-zone" id="dz-cellular" ondragover="dzOver(event,'cellular')" ondragleave="dzLeave('cellular')" ondrop="dzDrop(event,'cellular')">
+        <div class="label">cellular.xlsx</div>
+        <div class="badge">optional</div>
+        <div class="hint">person_id, timestamp, call_duration_sec, sms_count, contact_id, call_type</div>
+        <div class="fname" id="fn-cellular"></div>
+        <input type="file" accept=".xlsx,.xls" onchange="fileChosen('cellular',this)">
+      </div>
+      <div class="drop-zone" id="dz-location" ondragover="dzOver(event,'location')" ondragleave="dzLeave('location')" ondrop="dzDrop(event,'location')">
+        <div class="label">location.xlsx</div>
+        <div class="badge">optional</div>
+        <div class="hint">person_id, timestamp, lat, lon</div>
+        <div class="fname" id="fn-location"></div>
+        <input type="file" accept=".xlsx,.xls" onchange="fileChosen('location',this)">
+      </div>
+      <div class="drop-zone" id="dz-cyber" ondragover="dzOver(event,'cyber')" ondragleave="dzLeave('cyber')" ondrop="dzDrop(event,'cyber')">
+        <div class="label">cyber.xlsx</div>
+        <div class="badge">optional</div>
+        <div class="hint">person_id, timestamp, domain, data_volume_kb, protocol</div>
+        <div class="fname" id="fn-cyber"></div>
+        <input type="file" accept=".xlsx,.xls" onchange="fileChosen('cyber',this)">
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:1.25rem">
+      <button class="btn-primary" id="btn-process" disabled onclick="processFiles()">Process Files</button>
+    </div>
+    <div id="upload-error"></div>
+  </div>
+</div>
+
+<!-- Step 2: Search -->
+<div class="step" id="step-search">
+  <div class="card">
+    <h2>Step 2 — Select People &amp; Search</h2>
+    <input id="search-input" type="text" placeholder="Filter by name or ID..." oninput="filterPersons()">
+    <div class="selected-bar" id="selected-bar">No people selected</div>
+    <div class="person-list" id="person-list"></div>
+    <div style="display:flex;gap:.75rem;margin-top:1rem;justify-content:center">
+      <button class="btn-secondary" onclick="goBack()">&#8592; Back</button>
+      <button class="btn-primary" id="btn-search" disabled onclick="doSearch()">Search Similar Groups</button>
+    </div>
+  </div>
+  <div id="results"></div>
+</div>
+
+</main>
+<script>
+const files = {};
+let allPersons = [], selectedIds = new Set();
+
+function fileChosen(key, input) {
+  if (input.files[0]) { files[key] = input.files[0]; markDz(key, input.files[0].name); }
+  updateProcessBtn();
+}
+function markDz(key, name) {
+  document.getElementById('dz-' + key).classList.add('ready');
+  document.getElementById('fn-' + key).textContent = name;
+}
+function dzOver(e, key) { e.preventDefault(); document.getElementById('dz-' + key).classList.add('over'); }
+function dzLeave(key) { document.getElementById('dz-' + key).classList.remove('over'); }
+function dzDrop(e, key) {
+  e.preventDefault(); dzLeave(key);
+  const f = e.dataTransfer.files[0];
+  if (f) { files[key] = f; markDz(key, f.name); updateProcessBtn(); }
+}
+function updateProcessBtn() {
+  document.getElementById('btn-process').disabled = !files.persons;
+}
+
+async function processFiles() {
+  const btn = document.getElementById('btn-process');
+  btn.disabled = true; btn.textContent = 'Processing...';
+  const errEl = document.getElementById('upload-error');
+  errEl.innerHTML = '';
+  const fd = new FormData();
+  fd.append('persons', files.persons);
+  if (files.cellular) fd.append('cellular', files.cellular);
+  if (files.location) fd.append('location', files.location);
+  if (files.cyber) fd.append('cyber', files.cyber);
+  try {
+    const r = await fetch('/api/upload', {method:'POST', body:fd});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || 'Upload failed');
+    await loadPersons();
+    document.getElementById('step-upload').classList.remove('active');
+    document.getElementById('step-search').classList.add('active');
+    updateStatusPill(j.persons);
+  } catch(e) {
+    errEl.innerHTML = '<div class="error-msg">' + e.message + '</div>';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Process Files'; updateProcessBtn();
+  }
+}
+
+async function loadPersons() {
+  const r = await fetch('/api/persons');
+  allPersons = await r.json();
+  renderPersonList(allPersons);
+}
+
+function renderPersonList(list) {
+  const el = document.getElementById('person-list');
+  el.innerHTML = list.map(p =>
+    `<span class="person-chip${selectedIds.has(p.id)?' selected':''}" onclick="togglePerson(${p.id},'${p.name.replace(/'/g,"\\'")}')">
+      <b>${p.id}</b> ${p.name}
+    </span>`).join('');
+}
+
+function togglePerson(id, name) {
+  if (selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
+  updateSelectedBar();
+  renderPersonList(currentFilter());
+  document.getElementById('btn-search').disabled = selectedIds.size === 0;
+}
+
+function currentFilter() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  return q ? allPersons.filter(p => p.name.toLowerCase().includes(q) || String(p.id).includes(q)) : allPersons;
+}
+
+function filterPersons() { renderPersonList(currentFilter()); }
+
+function updateSelectedBar() {
+  const bar = document.getElementById('selected-bar');
+  if (selectedIds.size === 0) { bar.textContent = 'No people selected'; return; }
+  const names = [...selectedIds].map(id => {
+    const p = allPersons.find(x => x.id === id);
+    return p ? `${id} – ${p.name}` : id;
+  });
+  bar.textContent = 'Selected: ' + names.join(' | ');
+}
+
+function updateStatusPill(n) {
+  const pill = document.getElementById('status-pill');
+  pill.textContent = '● ' + n + ' persons loaded';
+  pill.classList.add('ok');
+}
+
+function goBack() {
+  document.getElementById('step-search').classList.remove('active');
+  document.getElementById('step-upload').classList.add('active');
+  document.getElementById('results').innerHTML = '';
+  selectedIds.clear(); updateSelectedBar();
+}
+
+let radarChart = null;
+
+async function doSearch() {
+  const btn = document.getElementById('btn-search');
+  btn.disabled = true; btn.textContent = 'Searching...';
+  const resultsEl = document.getElementById('results');
+  resultsEl.innerHTML = '<div class="loader">Searching...</div>';
+  try {
+    const r = await fetch('/api/search', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({person_ids: [...selectedIds]})
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail);
+    renderResults(j);
+  } catch(e) {
+    resultsEl.innerHTML = '<div class="error-msg">' + e.message + '</div>';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Search Similar Groups';
+    document.getElementById('btn-search').disabled = selectedIds.size === 0;
+  }
+}
+
+function renderResults(data) {
+  const el = document.getElementById('results');
+  const top = data.results[0];
+  const radar = buildRadar(data.query_profile, top ? top.profile : null, data.feature_names);
+  let html = '<div class="card"><h2>Results</h2>';
+  data.results.forEach((r, i) => {
+    const pct = Math.round(r.similarity * 100);
+    const names = r.member_names.join(', ') + (r.size > 5 ? ` +${r.size-5} more` : '');
+    html += `<div class="result-card">
+      <div class="result-header">
+        <div class="rank">#${i+1}</div>
+        <div class="sim-bar-wrap"><div class="sim-bar" style="width:${pct}%"></div></div>
+        <div class="sim-pct">${pct}%</div>
+      </div>
+      <div class="members">${r.size} people: ${names}</div>
+      <div class="members" style="margin-top:.2rem">IDs: ${r.members.join(', ')}</div>
+    </div>`;
+  });
+  html += '</div>';
+  html += `<div class="card"><h2>Profile Radar — Your Group vs Top Match</h2><div class="radar-wrap"><canvas id="radarCanvas"></canvas></div></div>`;
+  el.innerHTML = html;
+  drawRadar(data.query_profile, top ? top.profile : null, data.feature_names);
+}
+
+function drawRadar(query, top, names) {
+  const ctx = document.getElementById('radarCanvas').getContext('2d');
+  const shortNames = names.map(n => n.replace(/_/g,' '));
+  const datasets = [{
+    label: 'Your Group',
+    data: names.map(n => query[n] || 0),
+    borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,.15)', pointBackgroundColor: '#2563eb'
+  }];
+  if (top) datasets.push({
+    label: 'Top Match',
+    data: names.map(n => top[n] || 0),
+    borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,.1)', pointBackgroundColor: '#16a34a'
+  });
+  if (radarChart) radarChart.destroy();
+  radarChart = new Chart(ctx, {
+    type:'radar', data:{labels:shortNames, datasets},
+    options:{scales:{r:{ticks:{display:false}}}, plugins:{legend:{position:'bottom'}}}
+  });
+}
+</script>
+</body>
+</html>
